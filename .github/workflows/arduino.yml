@@ -27,10 +27,10 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install arduino:avr
 
-      # - name: Install Servo library
-      #   run: |
-      #     arduino-cli lib update-index
-      #     arduino-cli lib install Servo
+      - name: Install Servo library
+        run: |
+          arduino-cli lib update-index
+          arduino-cli lib install Servo
 
       - name: Compile sketch
         id: compile
