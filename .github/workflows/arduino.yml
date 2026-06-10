@@ -37,6 +37,7 @@ jobs:
         run: |
           arduino-cli compile \
             --fqbn arduino:avr:mega \
+            --output-dir build \
             ./servosensorled
 
       - name: Upload build artifact
