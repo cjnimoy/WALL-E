@@ -1,0 +1,1 @@
+{"file":"servosensorled/servosensorled.ino","patch":"void setup() {\n    // Corrected line to include the missing semicolon\n    Serial.begin(9600);\n\n    pinMode(trigPin, OUTPUT);\n    pinMode(echoPin, INPUT);\n    pinMode(ledPin, OUTPUT);\n\n    // Additional setup code, if any\n}"}
