@@ -4,10 +4,12 @@ on:
   push:
   pull_request:
 
-permissions: #necessary for attestations
+permissions:
   contents: read
+  pull-requests: write
   attestations: write
   id-token: write
+  models: read
 
 jobs:
   compile:
@@ -20,10 +22,7 @@ jobs:
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Update index
-        run: arduino-cli core update-index
-
-      - name: Install Arduino core
+      - name: Install core + update index
         run: |
           arduino-cli core update-index
           arduino-cli core install arduino:avr
@@ -34,19 +33,83 @@ jobs:
           arduino-cli lib install Servo
 
       - name: Compile sketch
+        id: compile
         run: |
+          set +e
+
           arduino-cli compile \
             --fqbn arduino:avr:mega \
             --output-dir build \
-            ./servosensorled
+            ./servosensorled > build.log 2>&1
 
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      # -------------------------
+      # AI STEP (ONLY ON FAILURE)
+      # -------------------------
+      - name: Analyze failure with GitHub Models
+        if: steps.compile.outputs.exit_code != '0' && github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LOG=$(tail -200 build.log | sed 's/"/\\"/g')
+
+          curl "https://models.github.ai/inference/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -d "{
+              \"model\": \"openai/gpt-4o\",
+              \"messages\": [
+                {
+                  \"role\": \"system\",
+                  \"content\": \"You are an expert Arduino and embedded C++ engineer. You analyze build failures and give clear fixes.\"
+                },
+                {
+                  \"role\": \"user\",
+                  \"content\": \"Analyze this Arduino build failure and suggest exact fixes:\n\n$LOG\"
+                }
+              ]
+            }" > ai_response.json
+
+      - name: Install jq
+        if: steps.compile.outputs.exit_code != '0'
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Format AI report
+        if: steps.compile.outputs.exit_code != '0' && github.event_name == 'pull_request'
+        run: |
+          echo "## Arduino Build Failed" > report.md
+          echo "" >> report.md
+          jq -r '.choices[0].message.content' ai_response.json >> report.md
+
+      - name: Comment on PR
+        if: steps.compile.outputs.exit_code != '0' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const report = fs.readFileSync('report.md', 'utf8');
+
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: report
+            });
+
+      # -------------------------
+      # SUCCESS PATH ONLY
+      # -------------------------
       - name: Upload build artifact
+        if: steps.compile.outputs.exit_code == '0'
         uses: actions/upload-artifact@v4
         with:
           name: arduino-build
           path: build/
 
       - name: Generate artifact attestation
+        if: steps.compile.outputs.exit_code == '0'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: build/**
