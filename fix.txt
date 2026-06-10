@@ -1,0 +1,1 @@
+{"file":"servosensorled/servosensorled.ino","patch":"void setup() {\n  // Assuming there's missing code above, ensure there's a semicolon at each statement.\n  // For example:\n  // int trigPin = 9; // Ensure variable declarations are properly terminated.\n  pinMode(trigPin, OUTPUT);\n  // Add any other initialization code here.\n}"}

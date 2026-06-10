@@ -1,0 +1,11 @@
+/home/runner/work/WALL-E/WALL-E/servosensorled/servosensorled.ino: In function 'void setup()':
+/home/runner/work/WALL-E/WALL-E/servosensorled/servosensorled.ino:22:3: error: expected ';' before 'pinMode'
+   pinMode(trigPin, OUTPUT);
+   ^~~~~~~
+
+[92mUsed library[0m [92mVersion[0m [90mPath[0m
+[93mServo[0m        1.3.0   [90m/home/runner/Arduino/libraries/Servo[0m
+
+[92mUsed platform[0m [92mVersion[0m [90mPath[0m
+[93marduino:avr[0m   1.8.8   [90m/home/runner/.arduino15/packages/arduino/hardware/avr/1.8.8[0m
+Error during build: exit status 1
