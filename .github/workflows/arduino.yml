@@ -25,4 +25,4 @@ jobs:
         run: |
           arduino-cli compile \
             --fqbn arduino:avr:mega \
-            ./servosensorled.cpp.ino
+            ./arduino
