@@ -1,4 +1,4 @@
-name: Arduino Compile Check (AI Auto-Fix)
+name: Arduino Compile Check (AI Auto-Fix Robust)
 
 on:
   push:
@@ -45,72 +45,107 @@ jobs:
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
       # -------------------------
-      # AI ANALYSIS STEP
+      # DEBUG (optional but useful)
       # -------------------------
-      - name: Ask AI for fix
+      - name: Show build log (debug)
+        if: steps.compile.outputs.exit_code != '0'
+        run: |
+          echo "==== BUILD LOG ===="
+          cat build.log || true
+
+      # -------------------------
+      # BUILD AI REQUEST PAYLOAD
+      # -------------------------
+      - name: Build AI payload
+        if: steps.compile.outputs.exit_code != '0'
+        run: |
+          LOG=$(tail -200 build.log | sed 's/"/\\"/g')
+
+          cat <<EOF > payload.json
+{
+  "model": "openai/gpt-4o",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an expert Arduino C++ engineer. Return ONLY valid JSON: {\"file\":\"path\",\"patch\":\"full corrected file\"}. No markdown. No explanation."
+    },
+    {
+      "role": "user",
+      "content": "Fix this Arduino build error:\n\n$LOG"
+    }
+  ]
+}
+EOF
+
+      # -------------------------
+      # CALL GITHUB MODELS (TRY 1)
+      # -------------------------
+      - name: Call GitHub Models
         if: steps.compile.outputs.exit_code != '0'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LOG=$(tail -200 build.log | sed 's/"/\\"/g')
-
-          curl "https://models.github.ai/inference/chat/completions" \
+          curl --fail --silent --show-error \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -d "{
-              \"model\": \"openai/gpt-4o\",
-              \"messages\": [
-                {
-                  \"role\": \"system\",
-                  \"content\": \"You are an expert Arduino C++ engineer. You must return ONLY a code fix in this format:\\n\\nFILE: <file_path>\\nPATCH:\\n<full corrected file or unified diff>\\nNo explanations.\"
-                },
-                {
-                  \"role\": \"user\",
-                  \"content\": \"Fix this Arduino build error:\\n\\n$LOG\"
-                }
-              ]
-            }" > ai_response.json
+            -d @payload.json \
+            https://models.github.ai/inference/chat/completions \
+            -o ai_response.json || echo '{}' > ai_response.json
 
       # -------------------------
-      # EXTRACT FIX
+      # VALIDATE JSON SAFELY
       # -------------------------
-      - name: Parse AI response
+      - name: Validate AI response
         if: steps.compile.outputs.exit_code != '0'
         run: |
-          sudo apt-get update && sudo apt-get install -y jq
+          python3 -m json.tool ai_response.json > /dev/null || {
+            echo " Invalid AI JSON response"
+            cat ai_response.json
+            exit 1
+          }
 
-          jq -r '.choices[0].message.content' ai_response.json > fix.txt
+      # -------------------------
+      # EXTRACT AI FIX (SAFE)
+      # -------------------------
+      - name: Extract AI fix
+        if: steps.compile.outputs.exit_code != '0'
+        run: |
+          python3 << 'EOF' > fix.txt
+          
+import json
+
+with open("ai_response.json") as f:
+    data = json.load(f)
+
+content = data["choices"][0]["message"]["content"]
+print(content)
+EOF
 
       # -------------------------
       # CREATE FIX BRANCH
       # -------------------------
-      - name: Apply AI fix and create branch
+      - name: Apply fix and create branch
         if: steps.compile.outputs.exit_code != '0'
         run: |
           git config user.name "ai-bot"
           git config user.email "ai-bot@users.noreply.github.com"
 
           BRANCH="ai-fix-${GITHUB_RUN_ID}"
-
           git checkout -b $BRANCH
 
-          # naive overwrite approach (simple + reliable)
-          # expects full file content in FIX step
-          FILE=$(grep "FILE:" fix.txt | sed 's/FILE: //')
+          FILE=$(grep "file" fix.txt | sed 's/.*"file"[ ]*:[ ]*"//; s/".*//')
 
-          # everything after PATCH:
-          awk '/PATCH:/ {flag=1; next} flag' fix.txt > fixed_code.cpp
+          awk '/PATCH:/ {flag=1; next} flag' fix.txt > fixed.cpp
 
-          # overwrite file if provided
           if [ -f "$FILE" ]; then
-            cp fixed_code.cpp "$FILE"
+            cp fixed.cpp "$FILE"
           else
-            echo "No valid file path returned by AI"
+            echo "AI did not return valid file path"
             exit 1
           fi
 
           git add .
-          git commit -m "AI auto-fix for Arduino build failure"
+          git commit -m " AI auto-fix for Arduino build failure"
           git push origin $BRANCH
 
           echo "BRANCH=$BRANCH" >> $GITHUB_ENV
@@ -118,7 +153,7 @@ jobs:
       # -------------------------
       # CREATE PULL REQUEST
       # -------------------------
-      - name: Open PR with fix
+      - name: Create PR
         if: steps.compile.outputs.exit_code != '0'
         uses: actions/github-script@v7
         with:
@@ -128,14 +163,14 @@ jobs:
             await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: "AI Auto-Fix for Arduino Build Failure",
               head: branch,
               base: "main",
-              body: "This PR was automatically generated by GitHub Models after detecting a build failure."
+              title: " AI Auto-Fix Arduino Build",
+              body: "Automated fix generated by GitHub Models after build failure."
             });
 
       # -------------------------
-      # SUCCESS PATH (NORMAL BUILD)
+      # SUCCESS PATH
       # -------------------------
       - name: Upload build artifact
         if: steps.compile.outputs.exit_code == '0'
