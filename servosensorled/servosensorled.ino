@@ -17,7 +17,7 @@ const int rightled = 7;
 long duration;
 
 void setup() {
-  servo.attach(servoPin)
+  servo.attach(servoPin);
 
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
